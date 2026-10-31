@@ -1,0 +1,5 @@
+#!/usr/bin/python3
+import sys
+sys.path.insert(0, "/usr/lib/quickunlock")
+from quickunlock.gui.app import main
+sys.exit(main(sys.argv))

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Sign-in Options
+GenericName=PIN, Face and Voice Unlock
+Comment=Unlock your computer with a PIN, your face or your voice
+Exec=quickunlock-settings
+Icon=io.github.quickunlock.QuickUnlock
+Terminal=false
+Categories=GTK;GNOME;Settings;Security;System;
+Keywords=PIN;face;voice;unlock;login;sign-in;hello;biometric;lock screen;password;
+StartupNotify=true

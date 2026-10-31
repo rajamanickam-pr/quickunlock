@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+if [ "$1" = "configure" ]; then
+    install -d -m 0755 -o root -g root /var/lib/quickunlock
+    install -d -m 0700 -o root -g root /var/lib/quickunlock/users
+    install -d -m 0755 -o root -g root /var/lib/quickunlock/status
+    python3 -m compileall -q /usr/lib/quickunlock >/dev/null 2>&1 || true
+    if [ -f /etc/pam.d/gdm-password ]; then
+        /usr/bin/quickunlock-pam-setup enable || echo "QuickUnlock: could not update /etc/pam.d/gdm-password" >&2
+    else
+        echo "QuickUnlock: /etc/pam.d/gdm-password not found - lock-screen integration not enabled." >&2
+    fi
+fi
+exit 0

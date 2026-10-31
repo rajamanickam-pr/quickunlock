@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+if [ "$1" = "purge" ]; then
+    rm -rf /var/lib/quickunlock
+    rm -f /etc/pam.d/gdm-password.quickunlock-backup
+fi
+exit 0

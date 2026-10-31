@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>QuickUnlock</vendor>
+  <vendor_url>https://github.com/your-name/quickunlock</vendor_url>
+
+  <action id="io.github.quickunlock.manage">
+    <description>Change your PIN, face or voice unlock</description>
+    <message>Enter your password to change how you unlock this computer</message>
+    <icon_name>io.github.quickunlock.QuickUnlock</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/quickunlock/quickunlock-helper</annotate>
+  </action>
+
+  <action id="io.github.quickunlock.setup-pam">
+    <description>Turn on PIN, face and voice unlock for the lock screen</description>
+    <message>Administrator access is needed to change the lock-screen sign-in settings</message>
+    <icon_name>io.github.quickunlock.QuickUnlock</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/quickunlock-pam-setup</annotate>
+  </action>
+</policyconfig>
