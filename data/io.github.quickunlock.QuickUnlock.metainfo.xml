@@ -10,6 +10,8 @@
     computer, similar to Windows Hello. Your password keeps working and is
     still required for administrator tasks.</p>
   </description>
+  <url type="homepage">https://github.com/rajamanickam-pr/quickunlock</url>
+  <url type="bugtracker">https://github.com/rajamanickam-pr/quickunlock/issues</url>
   <launchable type="desktop-id">io.github.quickunlock.QuickUnlock.desktop</launchable>
   <categories><category>Settings</category><category>Security</category></categories>
   <releases>

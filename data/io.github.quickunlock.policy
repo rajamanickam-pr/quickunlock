@@ -3,7 +3,7 @@
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 <policyconfig>
   <vendor>QuickUnlock</vendor>
-  <vendor_url>https://github.com/your-name/quickunlock</vendor_url>
+  <vendor_url>https://github.com/rajamanickam-pr/quickunlock</vendor_url>
 
   <!-- Anything that makes unlocking easier: ask every time, no 5-minute reuse. -->
   <action id="io.github.quickunlock.manage">

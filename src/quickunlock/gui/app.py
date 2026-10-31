@@ -261,7 +261,7 @@ class App(Adw.Application):
     def _about(self, *_):
         Adw.AboutDialog(application_name="QuickUnlock", application_icon=APP_ID, version=__version__,
                         developer_name="QuickUnlock contributors", license_type=Gtk.License.MIT_X11,
-                        website="https://github.com/your-name/quickunlock",
+                        website="https://github.com/rajamanickam-pr/quickunlock",
                         comments="PIN and face unlock for the GNOME lock screen.").present(
             self.props.active_window)
 

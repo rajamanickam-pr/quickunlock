@@ -151,9 +151,8 @@ pamtester gdm-password $USER authenticate
 
 ## Publishing checklist
 
-- [ ] Replace `your-name` in the URLs (`app.py`, `.policy`, `control`, metainfo) with your GitHub account.
-- [ ] Push to GitHub and attach `build/quickunlock_*_all.deb` to a release.
-- [ ] Optional: build a source package and upload it to a Launchpad PPA (`ppa:your-name/quickunlock`) so users get updates through `apt`.
+- [ ] Attach `build/quickunlock_*_all.deb` to a release.
+- [ ] Optional: build a source package and upload it to a Launchpad PPA (`ppa:<launchpad-user>/quickunlock`) so users get updates through `apt`.
 - [ ] Flatpak and Snap are **not** possible for this app, because sandboxed apps cannot change system PAM settings.
 
 ## Uninstall
