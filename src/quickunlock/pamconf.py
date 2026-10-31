@@ -9,7 +9,6 @@ Resulting stack (Ubuntu):
     auth required  pam_succeed_if.so user != root quiet_success
     # >>> quickunlock >>>
     auth [success=done default=ignore] pam_exec.so quiet stdout  .../quickunlock-pam face
-    auth [success=done default=ignore] pam_exec.so quiet stdout  .../quickunlock-pam voice
     auth [success=done default=ignore] pam_exec.so quiet stdout expose_authtok .../quickunlock-pam pin
     # <<< quickunlock <<<
     @include common-auth
@@ -24,10 +23,14 @@ PIN, pam_unix (inside common-auth) re-uses the same text as the password,
 so you can type either your PIN or your password into the one field.
 "reset" only runs after common-auth succeeded (common-auth ends with
 pam_deny on failure) and clears PIN lockouts after a password login.
+
+`disable` leaves a marker in /var/lib/quickunlock so that package upgrades
+and gdm3 updates (`auto`) don't quietly switch QuickUnlock back on.
 """
 
 import os
 import shutil
+import tempfile
 
 from . import paths
 
@@ -39,7 +42,6 @@ def _block(entry: str) -> list[str]:
     return [
         BEGIN,
         f"auth [success=done default=ignore] pam_exec.so quiet stdout {entry} face",
-        f"auth [success=done default=ignore] pam_exec.so quiet stdout {entry} voice",
         f"auth [success=done default=ignore] pam_exec.so quiet stdout expose_authtok {entry} pin",
         END,
     ]
@@ -64,11 +66,14 @@ def strip(lines: list[str]) -> list[str]:
     return out
 
 
+def _is_common_auth(ln: str) -> bool:
+    return ln.split()[:2] == ["@include", "common-auth"]
+
+
 def render(text: str, entry: str = None) -> str:
     entry = entry or paths.PAM_ENTRY
     lines = strip(text.splitlines())
-    idx = next((i for i, ln in enumerate(lines)
-                if ln.split() and ln.split()[0] == "@include" and ln.split()[1:2] == ["common-auth"]), None)
+    idx = next((i for i, ln in enumerate(lines) if _is_common_auth(ln)), None)
     if idx is None:
         # Non-Ubuntu layout: put our lines before the first "auth" line that
         # is not pam_nologin / pam_succeed_if.
@@ -81,7 +86,30 @@ def render(text: str, entry: str = None) -> str:
         new = lines[:idx] + _block(entry) + lines[idx:]
     else:
         new = lines[:idx] + _block(entry) + [lines[idx]] + _reset_block(entry) + lines[idx + 1:]
-    return "\n".join(new) + "\n"
+    out = "\n".join(new) + "\n"
+    check(out, entry)
+    return out
+
+
+def check(text: str, entry: str = None) -> None:
+    """Refuse to write a stack that doesn't look exactly as intended."""
+    entry = entry or paths.PAM_ENTRY
+    lines = [ln.strip() for ln in text.splitlines()]
+    for marker in (BEGIN, END):
+        if lines.count(marker) != 1:
+            raise RuntimeError(f"expected exactly one '{marker}' line")
+    b = lines.index(BEGIN)
+    if lines[b:b + 4] != _block(entry):
+        raise RuntimeError("QuickUnlock block is not what was expected")
+    if any(ln.split()[:1] == ["auth"] and not any(m in ln for m in ("pam_nologin", "pam_succeed_if"))
+           for ln in lines[:b]):
+        raise RuntimeError("QuickUnlock block must come before the password check")
+    inc = [i for i, ln in enumerate(lines) if _is_common_auth(ln)]
+    if inc:
+        if len(inc) != 1 or inc[0] != b + 4 or lines[inc[0] + 1:inc[0] + 4] != _reset_block(entry):
+            raise RuntimeError("@include common-auth must sit between the QuickUnlock blocks")
+    elif RBEGIN in lines:
+        raise RuntimeError("reset block without common-auth")
 
 
 def is_installed(path: str = None) -> bool:
@@ -93,16 +121,32 @@ def is_installed(path: str = None) -> bool:
 
 
 def _write(path: str, text: str) -> None:
+    """Atomic and durable: a power cut leaves either the old or the new file."""
     st = os.stat(path)
-    tmp = path + ".quickunlock-tmp"
-    with open(tmp, "w") as f:
-        f.write(text)
-    os.chmod(tmp, st.st_mode & 0o7777)
+    d = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(dir=d, prefix=".quickunlock-")
     try:
-        os.chown(tmp, st.st_uid, st.st_gid)
-    except PermissionError:
-        pass
-    os.replace(tmp, path)
+        os.fchmod(fd, st.st_mode & 0o7777)
+        try:
+            os.fchown(fd, st.st_uid, st.st_gid)
+        except PermissionError:
+            pass
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+    dfd = os.open(d, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        os.fsync(dfd)
+    finally:
+        os.close(dfd)
 
 
 def install(path: str = None) -> bool:
@@ -132,21 +176,47 @@ def uninstall(path: str = None) -> bool:
     return True
 
 
+def admin_disabled() -> bool:
+    return os.path.exists(paths.pam_disabled_marker())
+
+
+def set_admin_disabled(disabled: bool) -> None:
+    marker = paths.pam_disabled_marker()
+    if disabled:
+        os.makedirs(os.path.dirname(marker), mode=0o755, exist_ok=True)
+        with open(marker, "w") as f:
+            f.write("QuickUnlock was switched off with 'quickunlock-pam-setup disable'.\n")
+    else:
+        try:
+            os.unlink(marker)
+        except FileNotFoundError:
+            pass
+
+
 def main(argv=None) -> int:
     import sys
     argv = sys.argv[1:] if argv is None else argv
     cmd = argv[0] if argv else "status"
     if cmd == "status":
-        print("installed" if is_installed() else "not installed")
+        state = "installed" if is_installed() else "not installed"
+        print(state + (" (switched off by 'disable')" if admin_disabled() else ""))
         return 0
     if os.geteuid() != 0:
         print("Run with sudo.", file=sys.stderr)
         return 1
     if cmd == "enable":
+        set_admin_disabled(False)
         print("Added QuickUnlock to " + paths.PAM_GDM_FILE if install() else "Already enabled.")
         return 0
     if cmd == "disable":
+        set_admin_disabled(True)
         print("Removed QuickUnlock from " + paths.PAM_GDM_FILE if uninstall() else "Already disabled.")
         return 0
-    print("usage: quickunlock-pam-setup [status|enable|disable]", file=sys.stderr)
+    if cmd == "auto":      # package install / upgrade / gdm3 trigger
+        if admin_disabled():
+            print("QuickUnlock was switched off with 'disable'; leaving it off.")
+            return 0
+        print("Added QuickUnlock to " + paths.PAM_GDM_FILE if install() else "Already enabled.")
+        return 0
+    print("usage: quickunlock-pam-setup [status|enable|disable|auto]", file=sys.stderr)
     return 2

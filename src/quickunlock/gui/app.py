@@ -10,7 +10,7 @@ from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
 
 from .. import APP_ID, __version__  # noqa: E402
 from . import backend  # noqa: E402
-from .dialogs import FaceDialog, PinDialog, VoiceDialog  # noqa: E402
+from .dialogs import FaceDialog, PinDialog  # noqa: E402
 
 
 class MethodRow(Adw.ExpanderRow):
@@ -70,7 +70,7 @@ class Window(Adw.ApplicationWindow):
 
         intro = Adw.PreferencesGroup(
             title="Ways to unlock",
-            description="Unlock the lock screen with a PIN, your face or your voice. "
+            description="Unlock the lock screen with a PIN or your face. "
                         "Your password always works and is still needed for sudo, "
                         "software updates and the first sign-in after a restart.")
         page.add(intro)
@@ -88,12 +88,6 @@ class Window(Adw.ApplicationWindow):
         self.face_rm_btn = self.face_row.button("Remove", lambda: self._remove("face"), "destructive-action")
         intro.add(self.face_row)
 
-        self.voice_row = MethodRow("audio-input-microphone-symbolic", "Voice (experimental)",
-                                   lambda on: self._toggle("voice", on))
-        self.voice_set_btn = self.voice_row.button("Set up", self._enroll_voice, "suggested-action")
-        self.voice_test_btn = self.voice_row.button("Test", self._test_voice)
-        self.voice_rm_btn = self.voice_row.button("Remove", lambda: self._remove("voice"), "destructive-action")
-        intro.add(self.voice_row)
 
         # options
         opts = Adw.PreferencesGroup(title="Options")
@@ -101,7 +95,7 @@ class Window(Adw.ApplicationWindow):
             title="Require password after restart",
             subtitle="Recommended. Keeps your keyring and saved passwords unlocked correctly.")
         self.boot_row.connect("notify::active", lambda r, _: self._set_cfg(
-            {"require_password_after_boot": r.get_active()}))
+            {"require_password_after_boot": r.get_active()}, restrict=r.get_active()))
         opts.add(self.boot_row)
 
         from ..face import camera_label, list_cameras
@@ -111,14 +105,6 @@ class Window(Adw.ApplicationWindow):
         self.cam_row.connect("notify::selected", lambda r, _: self._set_cfg(
             {"camera": self.cameras[r.get_selected()]}))
         opts.add(self.cam_row)
-
-        from ..voice import list_microphones
-        self.mics = [("auto", "Automatic")] + list_microphones()
-        self.mic_row = Adw.ComboRow(title="Microphone", model=Gtk.StringList.new(
-            [label for _, label in self.mics]))
-        self.mic_row.connect("notify::selected", lambda r, _: self._set_cfg(
-            {"microphone": self.mics[r.get_selected()][0]}))
-        opts.add(self.mic_row)
         page.add(opts)
 
         adv = Adw.PreferencesGroup(title="Advanced")
@@ -130,16 +116,12 @@ class Window(Adw.ApplicationWindow):
         self.face_timeout = Adw.SpinRow.new_with_range(1, 10, 0.5)
         self.face_timeout.set_title("Seconds to look for a face")
         self.face_timeout.set_digits(1)
-        self.voice_strict = Adw.SpinRow.new_with_range(0.30, 0.90, 0.01)
-        self.voice_strict.set_title("Voice strictness")
-        self.voice_strict.set_digits(2)
-        for row, key in ((self.face_strict, "face_threshold"), (self.face_timeout, "face_timeout"),
-                         (self.voice_strict, "voice_threshold")):
+        for row, key in ((self.face_strict, "face_threshold"), (self.face_timeout, "face_timeout")):
             row.connect("notify::value", self._spin_changed, key)
             exp.add_row(row)
         adv.add(exp)
         rm = Adw.ActionRow(title="Remove all QuickUnlock data",
-                           subtitle="Deletes your PIN, face and voice data from this computer")
+                           subtitle="Deletes your PIN and face data from this computer")
         b = Gtk.Button(label="Remove All", css_classes=["destructive-action"], valign=Gtk.Align.CENTER)
         b.connect("clicked", lambda *_: self._remove_all())
         rm.add_suffix(b)
@@ -163,32 +145,27 @@ class Window(Adw.ApplicationWindow):
         self.pin_unlock_btn.set_visible(bool(s.get("pin_hard_locked")))
         self.pin_rm_btn.set_visible(s["pin_set"])
 
-        for kind, row, setb, testb, rmb in (
-                ("face", self.face_row, self.face_set_btn, self.face_test_btn, self.face_rm_btn),
-                ("voice", self.voice_row, self.voice_set_btn, self.voice_test_btn, self.voice_rm_btn)):
-            n = s[f"{kind}_samples"]
-            sub = ("On" if s[f"{kind}_enabled"] else "Off") + f" · {n} samples" if n else "Not set up"
-            row.set_state(n > 0, s[f"{kind}_enabled"], sub)
-            setb.set_label("Set up again" if n else "Set up")
-            testb.set_visible(n > 0)
-            rmb.set_visible(n > 0)
+        n = s["face_samples"]
+        sub = ("On" if s["face_enabled"] else "Off") + f" · {n} samples" if n else "Not set up"
+        self.face_row.set_state(n > 0, s["face_enabled"], sub)
+        self.face_set_btn.set_label("Set up again" if n else "Set up")
+        self.face_test_btn.set_visible(n > 0)
+        self.face_rm_btn.set_visible(n > 0)
 
         self._quiet = True
         self.boot_row.set_active(cfg["require_password_after_boot"])
         cam = cfg.get("camera", "auto")
         self.cam_row.set_selected(self.cameras.index(cam) if cam in self.cameras else 0)
-        mic = cfg.get("microphone", "auto")
-        ids = [m for m, _ in self.mics]
-        self.mic_row.set_selected(ids.index(mic) if mic in ids else 0)
         self.face_strict.set_value(cfg["face_threshold"])
         self.face_timeout.set_value(cfg["face_timeout"])
-        self.voice_strict.set_value(cfg["voice_threshold"])
         self._quiet = False
 
     def toast(self, msg):
         self.toasts.add_toast(Adw.Toast(title=msg, timeout=4))
 
-    def _helper(self, cmd, data=None, ok_msg=None):
+    def _helper(self, cmd, data=None, ok_msg=None, restrict=False):
+        """restrict=True: the change only makes unlocking harder, so it goes
+        to the helper that needs no password."""
         def done(res):
             if res.get("error"):
                 if not res.get("cancelled"):
@@ -196,15 +173,15 @@ class Window(Adw.ApplicationWindow):
             elif ok_msg:
                 self.toast(ok_msg)
             self.refresh()
-        backend.call_helper(cmd, data, done)
+        backend.call_helper(cmd, data, done, restrict=restrict)
 
     # ------------------------------------------------------------- actions
     def _toggle(self, kind, on):
-        self._helper("set-config", {f"{kind}_enabled": on})
+        self._helper("set-config", {f"{kind}_enabled": on}, restrict=not on)
 
-    def _set_cfg(self, upd):
+    def _set_cfg(self, upd, restrict=False):
         if not getattr(self, "_quiet", True):
-            self._helper("set-config", upd)
+            self._helper("set-config", upd, restrict=restrict)
 
     def _spin_changed(self, row, _pspec, key):
         if getattr(self, "_quiet", True):
@@ -214,7 +191,9 @@ class Window(Adw.ApplicationWindow):
 
         def fire():
             self._spin_timer = None
-            self._helper("set-config", {key: round(row.get_value(), 2)})
+            value, current = round(row.get_value(), 2), self.status["config"][key]
+            stricter = value >= current if key == "face_threshold" else value <= current
+            self._helper("set-config", {key: value}, restrict=stricter)
             return False
         self._spin_timer = GLib.timeout_add(700, fire)
 
@@ -233,18 +212,6 @@ class Window(Adw.ApplicationWindow):
             backend.call_helper("verify-face", {"embedding": embs[0]}, self._show_test)
         FaceDialog(self, self.status["config"].get("camera", "auto"), got, mode="test")
 
-    def _enroll_voice(self):
-        cfg = self.status["config"]
-        VoiceDialog(self, cfg.get("microphone", "auto"), cfg.get("voice_seconds", 3.0),
-                    lambda embs: self._helper("set-voice", {"embeddings": embs}, "Voice unlock is ready"))
-
-    def _test_voice(self):
-        cfg = self.status["config"]
-
-        def got(embs):
-            backend.call_helper("verify-voice", {"embedding": embs[0]}, self._show_test)
-        VoiceDialog(self, cfg.get("microphone", "auto"), cfg.get("voice_seconds", 3.0), got, mode="test")
-
     def _show_test(self, res):
         if res.get("error"):
             self.toast(res["error"])
@@ -261,14 +228,16 @@ class Window(Adw.ApplicationWindow):
         d.present(self)
 
     def _remove(self, kind):
-        names = {"pin": "PIN", "face": "face data", "voice": "voice data"}
+        names = {"pin": "PIN", "face": "face data"}
         self._confirm(f"Remove {names[kind]}?", "You can set it up again at any time.", "Remove",
-                      lambda: self._helper(f"clear-{kind}", None, f"{names[kind].capitalize()} removed"))
+                      lambda: self._helper(f"clear-{kind}", None, f"{names[kind].capitalize()} removed",
+                                           restrict=True))
 
     def _remove_all(self):
         self._confirm("Remove all QuickUnlock data?",
-                      "Your PIN, face and voice data will be deleted. You will unlock with your password.",
-                      "Remove All", lambda: self._helper("remove-all", None, "All data removed"))
+                      "Your PIN and face data will be deleted. You will unlock with your password.",
+                      "Remove All", lambda: self._helper("remove-all", None, "All data removed",
+                                                         restrict=True))
 
     def _enable_pam(self, *_):
         def done(res):
@@ -293,7 +262,7 @@ class App(Adw.Application):
         Adw.AboutDialog(application_name="QuickUnlock", application_icon=APP_ID, version=__version__,
                         developer_name="QuickUnlock contributors", license_type=Gtk.License.MIT_X11,
                         website="https://github.com/your-name/quickunlock",
-                        comments="PIN, face and voice unlock for the GNOME lock screen.").present(
+                        comments="PIN and face unlock for the GNOME lock screen.").present(
             self.props.active_window)
 
 

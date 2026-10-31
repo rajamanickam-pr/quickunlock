@@ -1,0 +1,10 @@
+#!/usr/bin/python3 -I
+import os
+import sys
+
+# Never let the caller's environment redirect data/model paths (security).
+for _k in [k for k in os.environ if k.startswith("QUICKUNLOCK_")]:
+    del os.environ[_k]
+sys.path.insert(0, "/usr/lib/quickunlock")
+from quickunlock.helper import main  # noqa: E402
+sys.exit(main(restricted=True))

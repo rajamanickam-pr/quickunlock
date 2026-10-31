@@ -1,0 +1,2 @@
+# Re-apply the QuickUnlock lines if a gdm3 update replaces this file.
+interest-noawait /etc/pam.d/gdm-password

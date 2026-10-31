@@ -5,26 +5,41 @@
   <vendor>QuickUnlock</vendor>
   <vendor_url>https://github.com/your-name/quickunlock</vendor_url>
 
+  <!-- Anything that makes unlocking easier: ask every time, no 5-minute reuse. -->
   <action id="io.github.quickunlock.manage">
-    <description>Change your PIN, face or voice unlock</description>
+    <description>Change your PIN or face unlock</description>
     <message>Enter your password to change how you unlock this computer</message>
     <icon_name>io.github.quickunlock.QuickUnlock</icon_name>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
-      <allow_active>auth_self_keep</allow_active>
+      <allow_active>auth_self</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/quickunlock/quickunlock-helper</annotate>
   </action>
 
+  <!-- Turning methods off, removing data, raising strictness. The helper
+       itself rejects anything that would make unlocking easier. -->
+  <action id="io.github.quickunlock.restrict">
+    <description>Turn off or remove your PIN or face unlock</description>
+    <message>Turn off or remove a way to unlock this computer</message>
+    <icon_name>io.github.quickunlock.QuickUnlock</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/libexec/quickunlock/quickunlock-helper-restrict</annotate>
+  </action>
+
   <action id="io.github.quickunlock.setup-pam">
-    <description>Turn on PIN, face and voice unlock for the lock screen</description>
+    <description>Turn on PIN and face unlock for the lock screen</description>
     <message>Administrator access is needed to change the lock-screen sign-in settings</message>
     <icon_name>io.github.quickunlock.QuickUnlock</icon_name>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
-      <allow_active>auth_admin_keep</allow_active>
+      <allow_active>auth_admin</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/quickunlock-pam-setup</annotate>
   </action>

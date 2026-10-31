@@ -2,15 +2,18 @@
 <component type="desktop-application">
   <id>io.github.quickunlock.QuickUnlock</id>
   <name>QuickUnlock</name>
-  <summary>PIN, face and voice unlock for the GNOME lock screen</summary>
+  <summary>PIN and face unlock for the GNOME lock screen</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
   <description>
-    <p>Set up a PIN, face recognition or voice recognition to unlock your
+    <p>Set up a PIN or face recognition to unlock your
     computer, similar to Windows Hello. Your password keeps working and is
     still required for administrator tasks.</p>
   </description>
   <launchable type="desktop-id">io.github.quickunlock.QuickUnlock.desktop</launchable>
   <categories><category>Settings</category><category>Security</category></categories>
-  <releases><release version="0.1.0" date="2026-10-31"/></releases>
+  <releases>
+    <release version="0.2.0" date="2026-10-31"/>
+    <release version="0.1.0" date="2026-10-31"/>
+  </releases>
 </component>

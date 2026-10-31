@@ -6,8 +6,8 @@ Layout (all owned by root):
       config.json     settings (methods enabled, thresholds, devices)
       pin.json        scrypt hash of the PIN
       face.npy        enrolled face embeddings  (N x 128 float32)
-      voice.npy       enrolled voice embeddings (N x 256 float32)
       state.json      failed-attempt counters written by the PAM helper
+      .lock           flock() target serialising PIN attempts
   /var/lib/quickunlock/status/<user>.json   0644, no secrets
 
 Secrets are root-only so that a program running in the user's session
@@ -16,6 +16,8 @@ through the pkexec helper, which asks for the user's password, just as
 Windows asks for your password before you can set a PIN.
 """
 
+import contextlib
+import fcntl
 import io
 import json
 import os
@@ -29,20 +31,20 @@ USER_RE = re.compile(r"^[a-z_][a-z0-9_.-]{0,31}$")
 DEFAULT_CONFIG = {
     "pin_enabled": False,
     "face_enabled": False,
-    "voice_enabled": False,
-    # Only allow PIN/face/voice after you have logged in once with your
+    # Only allow PIN/face after you have logged in once with your
     # password since boot (keeps the keyring and disk-encryption story sane).
     "require_password_after_boot": True,
     "face_threshold": 0.45,      # SFace cosine similarity (OpenCV suggests 0.363)
     "face_timeout": 3.0,         # seconds to look for a face at the lock screen
     "camera": "auto",            # "auto" or a device path such as /dev/video2
-    "voice_threshold": 0.60,     # speaker-embedding cosine similarity
-    "voice_seconds": 3.0,
-    "microphone": "auto",        # "auto" or an ALSA device such as plughw:1,0
 }
 
 PIN_MAX_FAILS_BEFORE_DELAY = 3
 PIN_HARD_LOCK_FAILS = 10
+
+
+def clean_state() -> dict:
+    return {"pin_fails": 0, "pin_locked_until": 0.0, "pin_hard_locked": False}
 
 
 def check_user(user: str) -> str:
@@ -92,10 +94,26 @@ class UserStore:
         os.makedirs(self.dir, mode=0o700, exist_ok=True)
         os.chmod(self.dir, 0o700)
 
+    @contextlib.contextmanager
+    def locked(self):
+        """Hold an exclusive lock for a read-modify-write of state.json.
+
+        The kernel drops the lock if the process dies, so a killed PAM
+        helper can never leave it stuck."""
+        self.ensure()
+        fd = os.open(self._p(".lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(fd)
+
     # -- config ----------------------------------------------------------
     def config(self) -> dict:
         cfg = dict(DEFAULT_CONFIG)
-        cfg.update(_read_json(self._p("config.json"), {}))
+        data = _read_json(self._p("config.json"), {})
+        if isinstance(data, dict):
+            cfg.update({k: v for k, v in data.items() if k in DEFAULT_CONFIG})
         return cfg
 
     def save_config(self, cfg: dict) -> None:
@@ -137,13 +155,28 @@ class UserStore:
 
     # -- failure state ---------------------------------------------------
     def state(self) -> dict:
-        return _read_json(self._p("state.json"), {"pin_fails": 0, "pin_locked_until": 0.0,
-                                                  "pin_hard_locked": False})
+        """Failure counters. A missing file means "no failures"; a file that
+        exists but can't be read fails closed (PIN hard-locked until the
+        next password sign-in rewrites it)."""
+        try:
+            with open(self._p("state.json"), "rb") as f:
+                st = json.load(f)
+            if isinstance(st, dict):
+                int(st.get("pin_fails", 0))
+                float(st.get("pin_locked_until", 0.0))
+                return st
+        except FileNotFoundError:
+            return clean_state()
+        except (OSError, ValueError, TypeError):
+            pass
+        return {"pin_fails": PIN_HARD_LOCK_FAILS, "pin_locked_until": 0.0, "pin_hard_locked": True}
 
     def save_state(self, st: dict) -> None:
         self.ensure()
+        old_hard = bool(self.state().get("pin_hard_locked"))
         _atomic_write(self._p("state.json"), json.dumps(st).encode(), 0o600)
-        self.write_status()
+        if bool(st.get("pin_hard_locked")) != old_hard or not os.path.exists(paths.status_file(self.user)):
+            self.write_status()      # the public status only shows the hard lock
 
     def _unlink(self, name: str) -> None:
         try:
@@ -152,6 +185,7 @@ class UserStore:
             pass
 
     def remove_all(self) -> None:
+        # voice.npy: left behind by QuickUnlock 0.1, which had voice unlock
         for n in ("config.json", "pin.json", "face.npy", "voice.npy", "state.json"):
             self._unlink(n)
         try:
@@ -163,7 +197,6 @@ class UserStore:
     def status(self) -> dict:
         cfg = self.config()
         face = self.templates("face")
-        voice = self.templates("voice")
         st = self.state()
         return {
             "pin_set": self.pin_record() is not None,
@@ -171,8 +204,6 @@ class UserStore:
             "pin_hard_locked": bool(st.get("pin_hard_locked")),
             "face_samples": 0 if face is None else int(len(face)),
             "face_enabled": bool(cfg["face_enabled"]),
-            "voice_samples": 0 if voice is None else int(len(voice)),
-            "voice_enabled": bool(cfg["voice_enabled"]),
             "config": {k: v for k, v in cfg.items() if not k.endswith("_enabled")},
         }
 
@@ -185,10 +216,9 @@ class UserStore:
 def read_public_status(user: str) -> dict:
     """Readable by the unprivileged settings app."""
     default = {"pin_set": False, "pin_enabled": False, "pin_hard_locked": False,
-               "face_samples": 0, "face_enabled": False, "voice_samples": 0,
-               "voice_enabled": False,
+               "face_samples": 0, "face_enabled": False,
                "config": {k: v for k, v in DEFAULT_CONFIG.items() if not k.endswith("_enabled")}}
     data = _read_json(paths.status_file(check_user(user)), None)
-    if data:
+    if isinstance(data, dict):
         default.update(data)
     return default

@@ -1,14 +1,24 @@
 #!/bin/sh
 set -e
-if [ "$1" = "configure" ]; then
+case "$1" in
+configure)
     install -d -m 0755 -o root -g root /var/lib/quickunlock
     install -d -m 0700 -o root -g root /var/lib/quickunlock/users
     install -d -m 0755 -o root -g root /var/lib/quickunlock/status
     python3 -m compileall -q /usr/lib/quickunlock >/dev/null 2>&1 || true
     if [ -f /etc/pam.d/gdm-password ]; then
-        /usr/bin/quickunlock-pam-setup enable || echo "QuickUnlock: could not update /etc/pam.d/gdm-password" >&2
+        # "auto" respects "quickunlock-pam-setup disable", so upgrades don't
+        # switch QuickUnlock back on behind the admin's back.
+        /usr/bin/quickunlock-pam-setup auto || echo "QuickUnlock: could not update /etc/pam.d/gdm-password" >&2
     else
         echo "QuickUnlock: /etc/pam.d/gdm-password not found - lock-screen integration not enabled." >&2
     fi
-fi
+    ;;
+triggered)
+    # gdm3 (or something else managed by dpkg) replaced /etc/pam.d/gdm-password.
+    if [ -f /etc/pam.d/gdm-password ]; then
+        /usr/bin/quickunlock-pam-setup auto >/dev/null || echo "QuickUnlock: could not update /etc/pam.d/gdm-password" >&2
+    fi
+    ;;
+esac
 exit 0

@@ -6,13 +6,13 @@ Architecture: all
 Maintainer: QuickUnlock contributors <noreply@example.com>
 Depends: python3 (>= 3.10), python3-numpy, python3-opencv (>= 4.8), python3-gi,
  gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.5), libpam-modules, pkexec | policykit-1,
- alsa-utils, systemd
+ systemd
 Recommends: gdm3
 Homepage: https://github.com/your-name/quickunlock
-Description: PIN, face and voice unlock for the GNOME lock screen
+Description: PIN and face unlock for the GNOME lock screen
  QuickUnlock adds Windows Hello-style sign-in options to Ubuntu: unlock the
- GNOME lock screen with a numeric PIN, face recognition (any webcam, IR
- cameras supported) or voice recognition (experimental).
+ GNOME lock screen with a numeric PIN (with brute-force lockout) or face
+ recognition (any webcam, IR cameras recommended).
  .
  Only the GDM login/lock screen is affected; sudo, su, SSH and polkit keep
  requiring the real password. All recognition runs locally on the CPU.

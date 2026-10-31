@@ -1,4 +1,4 @@
-"""Enrollment dialogs: PIN, face and voice."""
+"""Enrollment dialogs: PIN and face."""
 
 import threading
 import time
@@ -8,14 +8,6 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, Gdk, Gtk  # noqa: E402
-
-from .backend import run_in_thread  # noqa: E402
-
-VOICE_PHRASES = [
-    "My voice unlocks this computer.",
-    "Hello computer, it's me. Please open up.",
-    "Seven bright stars shine over the quiet river.",
-]
 
 FACE_STEPS = [
     "Look straight at the camera",
@@ -43,7 +35,8 @@ class PinDialog:
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18,
                       margin_top=12, margin_bottom=24, margin_start=24, margin_end=24)
         box.append(Gtk.Label(label="Your PIN unlocks this computer at the lock screen. "
-                                   "Use 4–12 digits. Your password still works too.",
+                                   "Use 4–12 digits that are hard to guess: no 1234, 2580, "
+                                   "1212 or years. Your password still works too.",
                              wrap=True, xalign=0, css_classes=["dim-label"]))
         grp = Adw.PreferencesGroup()
         self.pin1 = Adw.PasswordEntryRow(title="New PIN")
@@ -199,79 +192,3 @@ class FaceDialog:
         self.dialog.close()
         self.on_done(self.samples)
         return False
-
-
-# ------------------------------------------------------------------ voice
-class VoiceDialog:
-    """Record three phrases (enroll) or one phrase (test)."""
-
-    def __init__(self, parent, microphone, seconds, on_done, mode="enroll"):
-        self.mic, self.seconds, self.on_done, self.mode = microphone, seconds, on_done, mode
-        self.phrases = VOICE_PHRASES if mode == "enroll" else [VOICE_PHRASES[0]]
-        self.embeddings, self.engine = [], None
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16,
-                      margin_top=6, margin_bottom=24, margin_start=24, margin_end=24)
-        self.icon = Gtk.Image(icon_name="audio-input-microphone-symbolic", pixel_size=64,
-                              css_classes=["dim-label"])
-        box.append(self.icon)
-        self.counter = Gtk.Label(css_classes=["dim-label"])
-        box.append(self.counter)
-        self.phrase = Gtk.Label(css_classes=["title-2"], wrap=True, justify=Gtk.Justification.CENTER)
-        box.append(self.phrase)
-        self.hint = Gtk.Label(label="Speak naturally, at your normal distance from the computer.",
-                              wrap=True, css_classes=["dim-label"], justify=Gtk.Justification.CENTER)
-        box.append(self.hint)
-        self.level = Gtk.ProgressBar()
-        box.append(self.level)
-        self.btn = Gtk.Button(label="Start recording", css_classes=["suggested-action", "pill"],
-                              halign=Gtk.Align.CENTER)
-        self.btn.connect("clicked", self._record)
-        box.append(self.btn)
-        self.dialog = _dialog("Set up voice unlock" if mode == "enroll" else "Test voice unlock",
-                              box, width=460)
-        self._show_phrase()
-        self.dialog.present(parent)
-
-    def _show_phrase(self):
-        i = len(self.embeddings)
-        self.counter.set_label(f"Phrase {i + 1} of {len(self.phrases)}")
-        self.phrase.set_label(f"“{self.phrases[i]}”")
-
-    def _record(self, *_):
-        self.btn.set_sensitive(False)
-        self.btn.set_label("Listening…")
-        self.icon.remove_css_class("dim-label")
-        self.icon.add_css_class("accent")
-        self.t0 = time.monotonic()
-        GLib.timeout_add(50, self._tick)
-        run_in_thread(self._capture, self._captured)
-
-    def _tick(self):
-        frac = (time.monotonic() - self.t0) / self.seconds
-        self.level.set_fraction(min(frac, 1.0))
-        return frac < 1.0 and not self.btn.get_sensitive()
-
-    def _capture(self):
-        from ..voice import VoiceEngine, record
-        if self.engine is None:
-            self.engine = VoiceEngine()
-        wave = record(self.seconds, self.mic)
-        return self.engine.embed(wave)
-
-    def _captured(self, emb, err):
-        self.icon.remove_css_class("accent")
-        self.icon.add_css_class("dim-label")
-        self.level.set_fraction(0)
-        self.btn.set_sensitive(True)
-        if err is not None:
-            self.hint.set_label(str(err))
-            self.btn.set_label("Try again")
-            return
-        self.embeddings.append(emb.tolist())
-        if len(self.embeddings) >= len(self.phrases):
-            self.dialog.close()
-            self.on_done(self.embeddings)
-            return
-        self.hint.set_label("Got it. Next phrase:")
-        self.btn.set_label("Record next phrase")
-        self._show_phrase()
